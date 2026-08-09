@@ -13,8 +13,9 @@ performance recipe.
 
 The checked gates cover GPU initialization rejection for Attention-side gate,
 1A1F eager with the FFN-local router, 2A2F TP2 eager state isolation, and TP2
-`FULL_DECODE_ONLY` Graph batch 1. Async communication, DBO, SP/PP,
-multi-node, quantization, and performance measurements are outside this recipe.
+`FULL_DECODE_ONLY` Graph batch 1. Multimodal execution, attention-side router
+transport, DBO, DP/EP, async communication, SP/PP, multi-node, quantization,
+and performance measurements are outside this recipe.
 
 ## Start the AFD stack
 
@@ -44,15 +45,18 @@ logprobs must match a complete native cold-start observation within `1e-2`.
 ## Validated evidence
 
 The CUDA validation used Qwen3.6-35B-A3B original BF16 weights on four RTX PRO
-6000 Blackwell GPUs. Native TP2 and AFD 2A2F TP2 matched across batch 1, batch
-2, repeated requests, and A/B/A interleaving: token IDs and top-5 sets were
-exact, and the maximum logprob absolute error was `0.0`.
+6000 Blackwell GPUs. Native TP2 and AFD 2A2F TP2 matched across the checked
+batch sizes, repeated requests, and A/B/A interleaving: token IDs and top-5
+sets were exact, and each logprob set matched one complete same-topology native
+cold-start observation within `1e-2`.
 
 Attention owns attention/KV and hybrid state; it has no gate, routed-expert,
 or shared-expert checkpoint weights. FFN owns and executes the native router,
 routed experts, shared expert, and shared-expert gate, and has an empty
 KV-cache spec. `compute_gate_on_attention=true` is rejected during GPU
 connector initialization. Raw responses and logs are intentionally not tracked.
+Without `--language-model-only`, the AFD Qwen conditional wrapper fails before
+constructing the visual path.
 
 ## Capability runner
 
@@ -60,14 +64,16 @@ Use the narrow runner to execute one gate and write its JUnit XML and JSON
 summary outside the worktree:
 
 ```bash
+export AFD_QWEN3_6_E2E_MODEL=/path/to/Qwen3.6-35B-A3B
+export AFD_QWEN3_6_E2E_GPUS=0,1,2,3
 python scripts/qwen36_v026/run_capability_matrix.py \
-  --topology 2a2f --gate-side ffn --mode graph --batch-size 2 \
-  --compare-native --cleanup
+  --topology 2a2f --gate-side ffn --mode graph --batch-size 1
 ```
 
-The runner deliberately rejects unsupported topologies, gate placements, and
-modes. Native vLLM 0.26 DBO exact-oracle coverage remains a separate Draft
-limitation and is not exercised by this recipe.
+The runner exposes only the FFN-local gate combinations with checked tests.
+Native vLLM 0.26 DBO exact-oracle coverage is not a claimed capability; it
+remains a separate Draft review-readiness limitation and is not exercised by
+this recipe.
 
 CUDA Graph correctness uses `FULL_DECODE_ONLY` with
 `{"mode": 0, "cudagraph_mode": "FULL_DECODE_ONLY"}`. This intentionally

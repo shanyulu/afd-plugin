@@ -19,6 +19,19 @@ _FFN_ROLE = frozenset(("ffn",))
 _NO_ROLES = frozenset()
 
 
+def _validate_qwen_text_only(model_config: Any) -> None:
+    """Reject multimodal Qwen execution before constructing the visual path."""
+    multimodal_config = getattr(model_config, "multimodal_config", None)
+    if (
+        multimodal_config is not None
+        and getattr(multimodal_config, "language_model_only", False) is not True
+    ):
+        raise ValueError(
+            "AFD Qwen3.5/3.6 currently supports text-only execution only; "
+            "pass --language-model-only",
+        )
+
+
 def _weight_layer_path(name: str) -> tuple[int, str, tuple[str, ...]] | None:
     """Return ``(layer index, stage, remainder)`` for a decoder weight."""
     parts = name.split(".")
@@ -405,6 +418,7 @@ class AFDQwen3_5MoeForConditionalGeneration(  # noqa: N801
         afd_config = parse_optional_afd_config(vllm_config, validate=False)
         if afd_config is None:
             raise RuntimeError("AFD Qwen conditional model requires AFD activation")
+        _validate_qwen_text_only(vllm_config.model_config)
         nn.Module.__init__(self)
         config = vllm_config.model_config.hf_config
         quant_config = vllm_config.quant_config

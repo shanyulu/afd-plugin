@@ -30,7 +30,7 @@ def _parser() -> argparse.ArgumentParser:
         choices=("1a1f", "2a2f"),
         required=True,
     )
-    parser.add_argument("--gate-side", choices=("attention", "ffn"), required=True)
+    parser.add_argument("--gate-side", choices=("ffn",), required=True)
     parser.add_argument(
         "--mode",
         choices=("eager", "graph"),
@@ -38,8 +38,6 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--batch-size", choices=(1, 2), type=int, required=True)
     parser.add_argument("--max-tokens", type=int, default=4)
-    parser.add_argument("--compare-native", action="store_true")
-    parser.add_argument("--cleanup", action="store_true")
     parser.add_argument(
         "--artifacts-dir",
         type=Path,
@@ -108,7 +106,6 @@ def main() -> int:
         "mode": args.mode,
         "batch_size": args.batch_size,
         "max_tokens": args.max_tokens,
-        "compare_native": args.compare_native,
         "returncode": result.returncode,
         "junit": str(junit_path),
     }

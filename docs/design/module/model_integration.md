@@ -208,8 +208,13 @@ For Qwen3.5/3.6 text-only MoE on CUDA, Attention owns embeddings, norms, and
 full and linear-attention state, then sends hidden states only. FFN owns the
 native gate, routed experts, shared expert, and shared-expert gate; its
 KV-cache spec is empty. `compute_gate_on_attention=true` is rejected during
-GPU connector initialization. The CUDA path supports synchronous eager and
-`FULL_DECODE_ONLY` graph execution only.
+GPU connector initialization. The supported CUDA capability is synchronous
+single-host NCCL P2P, 1A1F eager, 2A2F TP2 eager, and 2A2F TP2
+`FULL_DECODE_ONLY` Graph with batch size 1. The conditional wrapper rejects
+non-text-only execution before constructing its visual path. Attention-side
+router transport, DBO capability, DP/EP, async communication, multi-node,
+quantization, and performance claims are outside this PR. Native vLLM 0.26 DBO
+exact-oracle coverage remains an independent review-readiness gate.
 
 ## Failure and resource ownership
 

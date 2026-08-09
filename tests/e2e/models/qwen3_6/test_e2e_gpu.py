@@ -4,8 +4,11 @@
 
 Set ``AFD_QWEN3_6_E2E_MODEL`` to an original BF16 checkpoint. The tests use
 same-topology native cold starts as a controlled reference, then run the AFD
-stack across the requested Attention/FFN ranks. They require exact generated
-token IDs and a matching native top-k/logprob observation at every step.
+stack across the requested Attention/FFN ranks. They cover the supported
+FFN-local router path only: 1A1F eager, 2A2F TP2 eager, and 2A2F TP2
+`FULL_DECODE_ONLY` Graph with batch size 1. They require exact generated token
+IDs, exact top-k token sets, and one complete native top-k/logprob observation
+within the configured tolerance at every step.
 """
 
 from __future__ import annotations
@@ -330,17 +333,61 @@ def _assert_matches_native_oracle(
                 "native top-k="
                 f"{[set(logs['top_logprobs'][step]) for logs in native_choice_logs]}"
             )
-            for token_id, actual_logprob in actual_top5.items():
-                native_values = [
-                    native_top5[token_id] for native_top5 in matching_native_top5
-                ]
-                assert any(
-                    math.isclose(actual_logprob, native_value, abs_tol=1e-2)
-                    for native_value in native_values
-                ), (
-                    f"step={step}, token_id={token_id}, "
-                    f"actual={actual_logprob}, native={native_values}"
+            assert any(
+                all(
+                    math.isclose(
+                        actual_logprob,
+                        native_top5[token_id],
+                        abs_tol=1e-2,
+                    )
+                    for token_id, actual_logprob in actual_top5.items()
                 )
+                for native_top5 in matching_native_top5
+            ), f"step={step}, actual={actual_top5}, native={matching_native_top5}"
+
+
+def _oracle_choice(token_ids, top_logprobs):
+    return {
+        "token_ids": token_ids,
+        "logprobs": {"top_logprobs": top_logprobs},
+    }
+
+
+def test_native_oracle_requires_one_complete_observation():
+    oracles = (
+        {"choices": [_oracle_choice([7], [{"7": -1.0, "8": -2.0}])]},
+        {"choices": [_oracle_choice([7], [{"7": -1.1, "8": -2.1}])]},
+    )
+    candidate = {"choices": [_oracle_choice([7], [{"7": -1.005, "8": -2.005}])]}
+
+    _assert_matches_native_oracle(oracles, candidate)
+
+
+def test_native_oracle_rejects_cross_observation_logprob_matches():
+    oracles = (
+        {"choices": [_oracle_choice([7], [{"7": -1.0, "8": -2.5}])]},
+        {"choices": [_oracle_choice([7], [{"7": -1.5, "8": -2.0}])]},
+    )
+    candidate = {"choices": [_oracle_choice([7], [{"7": -1.0, "8": -2.0}])]}
+
+    with pytest.raises(AssertionError, match="actual="):
+        _assert_matches_native_oracle(oracles, candidate)
+
+
+def test_native_oracle_rejects_top_k_set_mismatch():
+    oracles = ({"choices": [_oracle_choice([7], [{"7": -1.0, "8": -2.0}])]},)
+    candidate = {"choices": [_oracle_choice([7], [{"7": -1.0, "9": -2.0}])]}
+
+    with pytest.raises(AssertionError, match="actual top-k"):
+        _assert_matches_native_oracle(oracles, candidate)
+
+
+def test_native_oracle_keeps_token_ids_exact():
+    oracles = ({"choices": [_oracle_choice([7], [{"7": -1.0}])]},)
+    candidate = {"choices": [_oracle_choice([9], [{"7": -1.0}])]}
+
+    with pytest.raises(AssertionError):
+        _assert_matches_native_oracle(oracles, candidate)
 
 
 def _afd_config(

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+from types import SimpleNamespace
 
 import pytest
 
@@ -67,3 +68,33 @@ def test_ffn_compute_ffn_output_calls_native_internal_router():
 
     assert calls == [hidden_states]
     assert torch.equal(output, hidden_states + 1)
+
+
+def test_qwen_conditional_model_rejects_multimodal_before_visual_construction(
+    monkeypatch,
+):
+    model_config = SimpleNamespace(
+        multimodal_config=SimpleNamespace(language_model_only=False),
+    )
+    vllm_config = SimpleNamespace(model_config=model_config)
+    monkeypatch.setattr(
+        adapter,
+        "parse_optional_afd_config",
+        lambda *_args, **_kwargs: SimpleNamespace(role="attention"),
+    )
+    monkeypatch.setattr(
+        adapter.native,
+        "Qwen3_VisionTransformer",
+        lambda *_args, **_kwargs: pytest.fail("visual path was constructed"),
+    )
+
+    with pytest.raises(ValueError, match="pass --language-model-only"):
+        adapter.AFDQwen3_5MoeForConditionalGeneration(vllm_config=vllm_config)
+
+
+def test_qwen_text_only_validation_accepts_language_model_only():
+    adapter._validate_qwen_text_only(
+        SimpleNamespace(
+            multimodal_config=SimpleNamespace(language_model_only=True),
+        ),
+    )
