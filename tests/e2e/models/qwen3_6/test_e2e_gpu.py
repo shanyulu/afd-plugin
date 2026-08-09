@@ -426,10 +426,11 @@ def test_qwen3_6_afd_2a2f_tp2_eager_matches_native_tp2(tmp_path: Path):
     native_batch2: tuple[dict[str, Any], ...] = ()
     native_a: tuple[dict[str, Any], ...] = ()
     native_b: tuple[dict[str, Any], ...] = ()
-    # Repeat cold starts on the same FFN-side TP topology. Comparing
-    # different physical pairs would conflate reproducibility with topology.
+    # Sample both physical pairs at the same TP topology. Blackwell TP2 native
+    # cold starts can produce either complete logprob observation; the AFD
+    # candidate must match one complete observation, never a per-token mix.
     for oracle_idx in range(2):
-        oracle_devices = devices[:2]
+        oracle_devices = devices[:2] if oracle_idx == 0 else devices[2:4]
         native: list[_ServerProcess] = []
         oracle_port = NATIVE_PORT + oracle_idx * 20
         native_command = [
@@ -549,7 +550,7 @@ def test_qwen3_6_afd_1a1f_eager_matches_native_tp1(
                     "--port",
                     str(native_port),
                 ],
-                devices[:1],
+                devices[1:2],
                 tmp_path / f"native_{suffix}.log",
             ),
         )
