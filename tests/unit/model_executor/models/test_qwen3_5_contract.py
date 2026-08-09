@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+from contextlib import nullcontext
 from types import SimpleNamespace
 
 import pytest
@@ -98,3 +99,58 @@ def test_qwen_text_only_validation_accepts_language_model_only():
             multimodal_config=SimpleNamespace(language_model_only=True),
         ),
     )
+
+
+def test_qwen_conditional_model_initializes_for_text_only(monkeypatch):
+    class FakeCausalLM(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.make_empty_intermediate_tensors = object()
+
+    model_config = SimpleNamespace(
+        hf_config=SimpleNamespace(vision_config=SimpleNamespace()),
+        multimodal_config=SimpleNamespace(
+            language_model_only=True,
+            mm_encoder_tp_mode="weights",
+        ),
+    )
+    vllm_config = SimpleNamespace(
+        model_config=model_config,
+        quant_config=None,
+    )
+    monkeypatch.setattr(
+        adapter,
+        "parse_optional_afd_config",
+        lambda *_args, **_kwargs: SimpleNamespace(role="attention"),
+    )
+    monkeypatch.setattr(
+        adapter.AFDQwen3_5MoeForConditionalGeneration,
+        "_mark_tower_model",
+        lambda *_args, **_kwargs: nullcontext(),
+    )
+    monkeypatch.setattr(
+        adapter.AFDQwen3_5MoeForConditionalGeneration,
+        "_mark_language_model",
+        lambda *_args, **_kwargs: nullcontext(),
+    )
+    monkeypatch.setattr(
+        adapter.native,
+        "Qwen3_VisionTransformer",
+        lambda *_args, **_kwargs: nn.Identity(),
+    )
+    monkeypatch.setattr(
+        adapter,
+        "AFDQwen3_5MoeForCausalLM",
+        lambda **_kwargs: FakeCausalLM(),
+    )
+    monkeypatch.setattr(
+        adapter.AFDQwen3_5MoeForConditionalGeneration,
+        "set_moe_parameters",
+        lambda _self: None,
+    )
+
+    model = adapter.AFDQwen3_5MoeForConditionalGeneration(
+        vllm_config=vllm_config,
+    )
+
+    assert model.multimodal_config.language_model_only is True
